@@ -219,3 +219,10 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 module-6/deployment/docker-compose.yml
+
+# Certificate bundle
+ca-bundle.pem
+*.pem
+
+# LangGraph API cache
+.langgraph_api/

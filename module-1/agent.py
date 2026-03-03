@@ -1,5 +1,4 @@
-import os
-import getpass
+import os, httpx
 from typing import List
 
 from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage
@@ -10,10 +9,12 @@ from langgraph.prebuilt import tools_condition, ToolNode
 from dotenv import load_dotenv
 
 # Environment setup
+load_dotenv("/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/.env", override=True)
 
-load_dotenv()
-
-llm = ChatGroq(model="gemma2-9b-it")
+CA_BUNDLE = "/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/ca-bundle.pem"
+os.environ["SSL_CERT_FILE"] = CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CA_BUNDLE
+http_client = httpx.Client(verify=CA_BUNDLE)
 
 def multiply(a: int, b: int) -> int:
     """Multiply a by b and return the product."""
@@ -29,7 +30,7 @@ def divide(a: int, b: int) -> float:
 
 TOOLS = [add, multiply, divide]
 
-llm = ChatGroq(model="qwen/qwen3-32b")
+llm = ChatGroq(model="qwen/qwen3-32b", http_client=http_client)
 llm_with_tools = llm.bind_tools(TOOLS, parallel_tool_calls=False)
 
 SYS_MESSAGE = SystemMessage(

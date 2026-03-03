@@ -1,7 +1,6 @@
 from typing_extensions import TypedDict
 from typing import Literal
 import random
-from IPython.display import Image, display
 from langgraph.graph import StateGraph, START, END
 
 class State(TypedDict):
@@ -39,12 +38,6 @@ def main():
     graph = build_graph()
     result = graph.invoke({"graph_state": "Hi, this is Lance."})
     print(result)
-    try:
-        img = graph.get_graph().draw_mermaid_png()
-        display(Image(img))
-    except Exception as e:
-        print(f"Diagram skipped")
-   
-
+    
 if __name__ == "__main__":
     main()

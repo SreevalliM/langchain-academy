@@ -1,19 +1,22 @@
 from pprint import pprint
-import os, getpass
+import os, httpx
 from langchain_core.messages import AIMessage, HumanMessage, AnyMessage
 from langchain_groq import ChatGroq
 from typing_extensions import TypedDict
 from typing import Annotated
 from langgraph.graph.message import add_messages
 from langgraph.graph import MessagesState , StateGraph, START, END
-from IPython.display import Image, display
 from dotenv import load_dotenv
 
 # Environment setup
+load_dotenv("/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/.env", override=True)
 
-load_dotenv()
+CA_BUNDLE = "/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/ca-bundle.pem"
+os.environ["SSL_CERT_FILE"] = CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CA_BUNDLE
+http_client = httpx.Client(verify=CA_BUNDLE)
 
-llm = ChatGroq(model="gemma2-9b-it")
+llm = ChatGroq(model="qwen/qwen3-32b", http_client=http_client)
 
 # Tool definition
 

@@ -1,8 +1,14 @@
+import os, httpx
 from langchain_core.messages import SystemMessage
 from langchain_groq import ChatGroq
 
 from langgraph.graph import START, StateGraph, MessagesState
 from langgraph.prebuilt import tools_condition, ToolNode
+
+CA_BUNDLE = os.environ.get("SSL_CERT_FILE", "/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/ca-bundle.pem")
+os.environ["SSL_CERT_FILE"] = CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CA_BUNDLE
+http_client = httpx.Client(verify=CA_BUNDLE)
 
 def add(a: int, b: int) -> int:
     """Adds a and b.
@@ -34,7 +40,7 @@ def divide(a: int, b: int) -> float:
 tools = [add, multiply, divide]
 
 # Define LLM with bound tools
-llm = ChatGroq(model="gemma2-9b-it")
+llm = ChatGroq(model="qwen/qwen3-32b", http_client=http_client)
 llm_with_tools = llm.bind_tools(tools)
 
 # System message
