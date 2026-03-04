@@ -3,6 +3,7 @@ import sys
 import sqlite3
 import getpass
 import argparse
+import httpx
 from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
@@ -12,10 +13,15 @@ from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage
 from langgraph.graph import MessagesState, StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-load_dotenv()
+load_dotenv("/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/.env", override=True)
+
+CA_BUNDLE = "/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/ca-bundle.pem"
+os.environ["SSL_CERT_FILE"] = CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CA_BUNDLE
+http_client = httpx.Client(verify=CA_BUNDLE)
 
 # Single model initialization (removed duplicate)
-model = ChatGroq(model="gemma2-9b-it")
+model = ChatGroq(model="qwen/qwen3-32b", http_client=http_client)
 
 class State(MessagesState):
     summary: str

@@ -1,11 +1,21 @@
+import os
+import httpx
 from typing import Literal
+from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage, RemoveMessage
 from langgraph.graph import MessagesState
 from langgraph.graph import StateGraph, START, END
 
+load_dotenv(override=True)
+
+CA_BUNDLE = "/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/ca-bundle.pem"
+os.environ["SSL_CERT_FILE"] = CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CA_BUNDLE
+http_client = httpx.Client(verify=CA_BUNDLE)
+
 # We will use this model for both the conversation and the summarization
-from langchain_openai import ChatOpenAI
-model = ChatOpenAI(model="gpt-4o", temperature=0) 
+from langchain_groq import ChatGroq
+model = ChatGroq(model="qwen/qwen3-32b", http_client=http_client)
 
 # State class to store messages and summary
 class State(MessagesState):

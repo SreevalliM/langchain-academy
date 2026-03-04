@@ -1,4 +1,6 @@
 langgraph
 langchain-core
 langchain-community
-langchain-openai
+langchain-groq
+python-dotenv
+httpx

@@ -1,5 +1,4 @@
-import os
-import getpass
+import os, httpx
 from pprint import pprint
 from typing import List
 
@@ -14,10 +13,14 @@ from langgraph.graph import MessagesState, StateGraph, START, END
 from dotenv import load_dotenv
 
 # Environment setup
+load_dotenv("/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/.env", override=True)
 
-load_dotenv()
+CA_BUNDLE = "/Users/L107127/Library/CloudStorage/OneDrive-EliLillyandCompany/Desktop/langchain-academy/ca-bundle.pem"
+os.environ["SSL_CERT_FILE"] = CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CA_BUNDLE
+http_client = httpx.Client(verify=CA_BUNDLE)
 
-llm = ChatGroq(model="gemma2-9b-it")
+llm = ChatGroq(model="qwen/qwen3-32b", http_client=http_client)
 
 def build_basic_graph(llm: ChatGroq):
     def chat_model_node(state: MessagesState):
@@ -41,6 +44,7 @@ def demo_basic(llm: ChatGroq):
 def build_filter_graph(llm: ChatGroq):
     def filter_messages(state: MessagesState):
         delete_msgs = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]
+        print(f'deleted messages: {[m.id for m in delete_msgs]}')
         return {"messages": delete_msgs}
     def chat_model_node(state: MessagesState):
         return {"messages": [llm.invoke(state["messages"])]}
@@ -72,6 +76,7 @@ def demo_filter(llm: ChatGroq):
 
 def build_slice_graph(llm: ChatGroq):
     def chat_model_node(state: MessagesState):
+        print(f'passing messages: {[m.id for m in state["messages"][-1:]]}')
         return {"messages": [llm.invoke(state["messages"][-1:])]}
     builder = StateGraph(MessagesState)
     builder.add_node("chat_model", chat_model_node)
