@@ -1,7 +1,7 @@
 from typing import Any, Iterable
 from typing_extensions import TypedDict
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.errors import NodeInterrupt
+from langgraph.types import interrupt
 from langgraph.graph import START, END, StateGraph
 
 class State(TypedDict):
@@ -12,9 +12,9 @@ def step_1(state: State) -> State:
     return state
 
 def step_2(state: State) -> State:
-    # Conditionally raise a NodeInterrupt if the length of the input is longer than 5 characters
+    # Conditionally interrupt if the length of the input is longer than 5 characters
     if len(state["input"]) > 5:
-        raise NodeInterrupt(
+        interrupt(
             f"Received input that is longer than 5 characters: {state['input']}"
         )
     print("---Step 2---")

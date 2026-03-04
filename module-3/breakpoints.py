@@ -1,3 +1,6 @@
+import os
+import ssl
+import httpx
 from typing import List
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import START, StateGraph
@@ -9,6 +12,10 @@ from IPython import get_ipython
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Workaround for corporate SSL proxy
+os.environ["SSL_CERT_FILE"] = ""
+os.environ["REQUESTS_CA_BUNDLE"] = ""
 
 def multiply(a: int, b: int) -> int:
     """Multiply two integers."""
@@ -23,7 +30,8 @@ def divide(a: int, b: int) -> float:
     return a / b
 
 tools: List = [add, multiply, divide]
-llm = ChatGroq(model="gemma2-9b-it")
+http_client = httpx.Client(verify=False)
+llm = ChatGroq(model="llama-3.3-70b-versatile", http_client=http_client)
 llm_with_tools = llm.bind_tools(tools)
 sys_msg = SystemMessage(content="You are a helpful assistant tasked with performing arithmetic on a set of inputs.")
 

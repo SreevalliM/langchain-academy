@@ -1,4 +1,5 @@
 import os
+import httpx
 from typing import Optional
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
@@ -7,6 +8,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import MessagesState, START, StateGraph
 from langgraph.prebuilt import tools_condition, ToolNode
 load_dotenv()
+
+http_client = httpx.Client(verify=False)
 
 def multiply(a: int, b: int) -> int:
     """Multiply a and b."""
@@ -21,7 +24,7 @@ def divide(a: int, b: int) -> float:
     return a / b
 
 TOOLS = [add, multiply, divide]
-LLM = ChatGroq(model="gemma2-9b-it")
+LLM = ChatGroq(model="llama-3.3-70b-versatile", http_client=http_client)
 LLM_WITH_TOOLS = LLM.bind_tools(TOOLS)
 SYS_MSG = SystemMessage(content="You are a helpful assistant tasked with performing arithmetic on a set of inputs.")
 
