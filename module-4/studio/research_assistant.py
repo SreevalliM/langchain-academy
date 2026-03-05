@@ -1,19 +1,55 @@
 import operator
+import time
 from pydantic import BaseModel, Field
 from typing import Annotated, List
 from typing_extensions import TypedDict
 
+import os, httpx
+from dotenv import load_dotenv
+
 from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, get_buffer_string
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 
 from langgraph.constants import Send
 from langgraph.graph import END, MessagesState, START, StateGraph
 
-### LLM
+### Environment setup
 
-llm = ChatOpenAI(model="gpt-4o", temperature=0) 
+# Load .env from project root (two levels up from studio/)
+env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+load_dotenv(env_path, override=True)
+
+CA_BUNDLE = os.path.join(os.path.dirname(__file__), "..", "..", "ca-bundle.pem")
+os.environ["SSL_CERT_FILE"] = CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CA_BUNDLE
+http_client = httpx.Client(verify=CA_BUNDLE)
+
+### LLM — 3-tier Groq strategy to stay within free-tier TPM limits
+# Each model has its own independent TPM counter (~6K each), so spreading calls avoids 429s
+
+# Medium: structured output (analyst creation, search queries for web), question generation, intro
+llm_medium = ChatGroq(model="qwen/qwen3-32b", temperature=0, http_client=http_client)
+
+# Heavy: large-context tasks (answer generation, section/report writing, conclusion, wiki search queries)
+llm_heavy = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, http_client=http_client)
+
+### Retry helper for Groq free-tier rate limits
+def _invoke_with_retry(llm_call, max_retries=3, base_wait=2.0):
+    """Call an LLM invoke function with automatic retry on rate limit errors."""
+    for attempt in range(max_retries):
+        try:
+            return llm_call()
+        except Exception as e:
+            if "429" in str(e) or "rate_limit" in str(e).lower() or "Rate limit" in str(e):
+                wait = base_wait * (2 ** attempt)
+                print(f"[Rate limit hit, retrying in {wait:.1f}s... attempt {attempt+1}/{max_retries}]")
+                time.sleep(wait)
+            else:
+                raise
+    # Final attempt without catching
+    return llm_call()
 
 ### Schema 
 
@@ -91,8 +127,8 @@ def create_analysts(state: GenerateAnalystsState):
     max_analysts=state['max_analysts']
     human_analyst_feedback=state.get('human_analyst_feedback', '')
         
-    # Enforce structured output
-    structured_llm = llm.with_structured_output(Perspectives)
+    # Enforce structured output (use llm_heavy for analyst creation — runs alone, keeps llm_medium free)
+    structured_llm = llm_heavy.with_structured_output(Perspectives)
 
     # System message
     system_message = analyst_instructions.format(topic=topic,
@@ -100,7 +136,7 @@ def create_analysts(state: GenerateAnalystsState):
                                                             max_analysts=max_analysts)
 
     # Generate question 
-    analysts = structured_llm.invoke([SystemMessage(content=system_message)]+[HumanMessage(content="Generate the set of analysts.")])
+    analysts = _invoke_with_retry(lambda: structured_llm.invoke([SystemMessage(content=system_message)]+[HumanMessage(content="Generate the set of analysts.")]))
     
     # Write the list of analysis to state
     return {"analysts": analysts.analysts}
@@ -136,9 +172,9 @@ def generate_question(state: InterviewState):
     analyst = state["analyst"]
     messages = state["messages"]
 
-    # Generate question 
+    # Generate question (use llm_medium — moderate token usage)
     system_message = question_instructions.format(goals=analyst.persona)
-    question = llm.invoke([SystemMessage(content=system_message)]+messages)
+    question = _invoke_with_retry(lambda: llm_medium.invoke([SystemMessage(content=system_message)]+messages))
         
     # Write messages to state
     return {"messages": [question]}
@@ -158,23 +194,29 @@ def search_web(state: InterviewState):
     
     """ Retrieve docs from web search """
 
-    # Search
-    tavily_search = TavilySearchResults(max_results=3)
+    try:
+        # Search
+        tavily_search = TavilySearchResults(max_results=3)
 
-    # Search query
-    structured_llm = llm.with_structured_output(SearchQuery)
-    search_query = structured_llm.invoke([search_instructions]+state['messages'])
-    
-    # Search
-    search_docs = tavily_search.invoke(search_query.search_query)
+        # Search query (use llm_medium — reliable structured output)
+        structured_llm = llm_medium.with_structured_output(SearchQuery)
+        search_query = _invoke_with_retry(lambda: structured_llm.invoke([search_instructions]+state['messages']))
+        
+        # Search
+        search_docs = tavily_search.invoke(search_query.search_query)
 
-     # Format
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document href="{doc["url"]}"/>\n{doc["content"]}\n</Document>'
-            for doc in search_docs
-        ]
-    )
+        # Handle case where tavily returns a string (error message) instead of list of dicts
+        if isinstance(search_docs, str):
+            formatted_search_docs = f'<Document href="tavily_search"/>\n{search_docs}\n</Document>'
+        else:
+            formatted_search_docs = "\n\n---\n\n".join(
+                [
+                    f'<Document href="{doc["url"]}"/>\n{doc["content"]}\n</Document>'
+                    for doc in search_docs
+                ]
+            )
+    except Exception as e:
+        formatted_search_docs = f'<Document href="web_search_error"/>\n{str(e)}\n</Document>'
 
     return {"context": [formatted_search_docs]} 
 
@@ -182,15 +224,18 @@ def search_wikipedia(state: InterviewState):
     
     """ Retrieve docs from wikipedia """
 
-    # Search query
-    structured_llm = llm.with_structured_output(SearchQuery)
-    search_query = structured_llm.invoke([search_instructions]+state['messages'])
+    # Search query (use llm_heavy — separate model from search_web to avoid parallel TPM clash)
+    structured_llm = llm_heavy.with_structured_output(SearchQuery)
+    search_query = _invoke_with_retry(lambda: structured_llm.invoke([search_instructions]+state['messages']))
     
     # Search
-    search_docs = WikipediaLoader(query=search_query.search_query, 
-                                  load_max_docs=2).load()
+    try:
+        search_docs = WikipediaLoader(query=search_query.search_query, 
+                                      load_max_docs=2).load()
+    except Exception as e:
+        return {"context": [f'<Document source="wikipedia_error"/>\n{str(e)}\n</Document>']}
 
-     # Format
+    # Format
     formatted_search_docs = "\n\n---\n\n".join(
         [
             f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
@@ -238,9 +283,9 @@ def generate_answer(state: InterviewState):
     messages = state["messages"]
     context = state["context"]
 
-    # Answer question
+    # Answer question (use llm_heavy — receives large search context)
     system_message = answer_instructions.format(goals=analyst.persona, context=context)
-    answer = llm.invoke([SystemMessage(content=system_message)]+messages)
+    answer = _invoke_with_retry(lambda: llm_heavy.invoke([SystemMessage(content=system_message)]+messages))
             
     # Name the message as coming from the expert
     answer.name = "expert"
@@ -348,9 +393,9 @@ def write_section(state: InterviewState):
     context = state["context"]
     analyst = state["analyst"]
    
-    # Write section using either the gathered source docs from interview (context) or the interview itself (interview)
+    # Write section (use llm_heavy — large context from search docs)
     system_message = section_writer_instructions.format(focus=analyst.description)
-    section = llm.invoke([SystemMessage(content=system_message)]+[HumanMessage(content=f"Use this source to write your section: {context}")]) 
+    section = _invoke_with_retry(lambda: llm_heavy.invoke([SystemMessage(content=system_message)]+[HumanMessage(content=f"Use this source to write your section: {context}")])) 
                 
     # Append it to state
     return {"sections": [section.content]}
@@ -439,9 +484,9 @@ def write_report(state: ResearchGraphState):
     # Concat all sections together
     formatted_str_sections = "\n\n".join([f"{section}" for section in sections])
     
-    # Summarize the sections into a final report
+    # Summarize the sections into a final report (use llm_heavy — large combined context)
     system_message = report_writer_instructions.format(topic=topic, context=formatted_str_sections)    
-    report = llm.invoke([SystemMessage(content=system_message)]+[HumanMessage(content=f"Write a report based upon these memos.")]) 
+    report = _invoke_with_retry(lambda: llm_heavy.invoke([SystemMessage(content=system_message)]+[HumanMessage(content=f"Write a report based upon these memos.")])) 
     return {"content": report.content}
 
 # Write the introduction or conclusion
@@ -481,7 +526,7 @@ def write_introduction(state: ResearchGraphState):
     # Summarize the sections into a final report
     
     instructions = intro_conclusion_instructions.format(topic=topic, formatted_str_sections=formatted_str_sections)    
-    intro = llm.invoke([instructions]+[HumanMessage(content=f"Write the report introduction")]) 
+    intro = _invoke_with_retry(lambda: llm_medium.invoke([instructions]+[HumanMessage(content=f"Write the report introduction")])) 
     return {"introduction": intro.content}
 
 def write_conclusion(state: ResearchGraphState):
@@ -498,7 +543,7 @@ def write_conclusion(state: ResearchGraphState):
     # Summarize the sections into a final report
     
     instructions = intro_conclusion_instructions.format(topic=topic, formatted_str_sections=formatted_str_sections)    
-    conclusion = llm.invoke([instructions]+[HumanMessage(content=f"Write the report conclusion")]) 
+    conclusion = _invoke_with_retry(lambda: llm_heavy.invoke([instructions]+[HumanMessage(content=f"Write the report conclusion")])) 
     return {"conclusion": conclusion.content}
 
 def finalize_report(state: ResearchGraphState):

@@ -6,7 +6,7 @@
     "map_reduce": "./map_reduce.py:graph",
     "research_assistant": "./research_assistant.py:graph"
   },
-  "env": "./.env",
+  "env": "../../.env",
   "python_version": "3.11",
   "dependencies": [
     "."

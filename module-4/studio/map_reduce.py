@@ -1,21 +1,32 @@
+import os, httpx
 import operator
 from typing import Annotated
 from typing_extensions import TypedDict
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from langchain_openai import ChatOpenAI 
+from langchain_groq import ChatGroq
 
 from langgraph.constants import Send
 from langgraph.graph import END, StateGraph, START
+
+### Environment setup
+env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+load_dotenv(env_path, override=True)
+
+CA_BUNDLE = os.path.join(os.path.dirname(__file__), "..", "..", "ca-bundle.pem")
+os.environ["SSL_CERT_FILE"] = CA_BUNDLE
+os.environ["REQUESTS_CA_BUNDLE"] = CA_BUNDLE
+http_client = httpx.Client(verify=CA_BUNDLE)
 
 # Prompts we will use
 subjects_prompt = """Generate a list of 3 sub-topics that are all related to this overall topic: {topic}."""
 joke_prompt = """Generate a joke about {subject}"""
 best_joke_prompt = """Below are a bunch of jokes about {topic}. Select the best one! Return the ID of the best one, starting 0 as the ID for the first joke. Jokes: \n\n  {jokes}"""
 
-# LLM
-model = ChatOpenAI(model="gpt-4o", temperature=0) 
+# LLM — use qwen3-32b for structured output (topics, jokes, best joke selection)
+model = ChatGroq(model="qwen/qwen3-32b", temperature=0, http_client=http_client)
 
 # Define the state
 class Subjects(BaseModel):
