@@ -20,3 +20,4 @@ sounddevice
 scipy
 pypdf
 langchain-huggingface
+pandas
